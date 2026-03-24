@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <key>Label</key>
+    <string>com.cynthia.jobdigest.jpmarkets</string>
+
+    <key>ProgramArguments</key>
+    <array>
+      <string>/bin/zsh</string>
+      <string>/Users/admin/Desktop/宝宝校招/aaa2026找工作/run_job_digest.sh</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/admin/Desktop/宝宝校招/aaa2026找工作</string>
+
+    <key>StartCalendarInterval</key>
+    <dict>
+      <key>Hour</key>
+      <integer>9</integer>
+      <key>Minute</key>
+      <integer>0</integer>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>/Users/admin/Desktop/宝宝校招/aaa2026找工作/job_digest_output/launchd.stdout.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/admin/Desktop/宝宝校招/aaa2026找工作/job_digest_output/launchd.stderr.log</string>
+
+    <key>RunAtLoad</key>
+    <true/>
+  </dict>
+</plist>
