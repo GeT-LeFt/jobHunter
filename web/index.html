@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Japan Job Hunter</title>
+  <title>JobHunter</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
@@ -13,9 +13,9 @@
   <div class="page-shell">
     <header class="hero">
       <div class="hero-copy">
-        <p class="eyebrow">Daily Digest</p>
-        <h1>Japan Job Hunter</h1>
-        <p class="hero-text">每天抓取深圳、广州、香港的日语与日本市场相关岗位，并把结果整理成一页可筛、可点开的清单。</p>
+        <p class="eyebrow">Private Board</p>
+        <h1>JobHunter</h1>
+        <p class="hero-text">只保留深圳和香港两个板块，优先展示日语 / 日本市场相关、对你更匹配的岗位。</p>
       </div>
       <div class="hero-panel">
         <div class="hero-stat">
@@ -27,87 +27,155 @@
           <strong id="job-count">--</strong>
         </div>
         <div class="hero-stat">
-          <span class="hero-stat-label">高匹配春招</span>
-          <strong id="priority-count">--</strong>
+          <span class="hero-stat-label">优先推荐</span>
+          <strong id="recommended-count">--</strong>
         </div>
         <button id="refresh-button" class="hero-action" type="button">立即刷新</button>
       </div>
     </header>
 
-    <section class="toolbar">
-      <div class="filter-group">
-        <button class="filter-chip active" data-filter="all">全部</button>
-        <button class="filter-chip" data-filter="高匹配春招">高匹配春招</button>
-        <button class="filter-chip" data-filter="补充关注">补充关注</button>
-      </div>
-      <div class="filter-group">
-        <button class="filter-chip active" data-region="all">全地区</button>
-        <button class="filter-chip" data-region="深圳">深圳</button>
-        <button class="filter-chip" data-region="广州">广州</button>
-        <button class="filter-chip" data-region="香港">香港</button>
-      </div>
-      <label class="search-box">
-        <span>搜索</span>
-        <input id="search-input" type="search" placeholder="岗位 / 公司 / 地点">
-      </label>
-    </section>
-
     <section class="summary-grid">
       <article class="summary-card">
-        <span class="summary-label">深圳</span>
+        <span class="summary-label">深圳岗位</span>
         <strong class="summary-value" id="count-shenzhen">0</strong>
       </article>
       <article class="summary-card">
-        <span class="summary-label">广州</span>
-        <strong class="summary-value" id="count-guangzhou">0</strong>
+        <span class="summary-label">深圳推荐</span>
+        <strong class="summary-value" id="count-shenzhen-recommended">0</strong>
       </article>
       <article class="summary-card">
-        <span class="summary-label">香港</span>
+        <span class="summary-label">香港岗位</span>
         <strong class="summary-value" id="count-hongkong">0</strong>
       </article>
       <article class="summary-card">
-        <span class="summary-label">新发现</span>
-        <strong class="summary-value" id="count-new">0</strong>
+        <span class="summary-label">香港推荐</span>
+        <strong class="summary-value" id="count-hongkong-recommended">0</strong>
       </article>
     </section>
 
-    <section class="insight-grid">
-      <article class="insight-card insight-card--priority">
-        <div class="insight-head">
-          <h2>今日重点</h2>
-          <span id="priority-badge">0 条高匹配</span>
-        </div>
-        <div id="priority-list" class="priority-list"></div>
-      </article>
-      <article class="insight-card">
-        <div class="insight-head">
-          <h2>接口状态</h2>
-          <span class="api-pill" id="api-status">检测中</span>
-        </div>
-        <div class="api-block">
-          <p>后端 API 已为小程序预留。</p>
-          <code id="api-latest-endpoint">/jobhunter-api/latest</code>
-          <code id="api-jobs-endpoint">/jobhunter-api/jobs?region=深圳&category=高匹配春招</code>
-          <code id="api-meta-endpoint">/jobhunter-api/meta</code>
-        </div>
-      </article>
-    </section>
-
-    <main>
-      <div class="section-header">
-        <h2>岗位列表</h2>
-        <span id="result-count">0 条</span>
+    <section class="resume-panel">
+      <div class="resume-copy">
+        <h2>简历匹配</h2>
+        <p>上传你自己的简历后，页面会优先推荐更贴近你经历和方向的岗位。</p>
+        <p id="resume-status" class="resume-status">尚未上传简历</p>
       </div>
-      <div id="job-list" class="job-list"></div>
-      <div id="empty-state" class="empty-state hidden">当前筛选下没有岗位。</div>
+      <div class="resume-actions">
+        <input id="resume-file" type="file" accept=".txt,.md,.docx,.pdf">
+        <button id="resume-upload-button" class="secondary-action" type="button">上传简历</button>
+      </div>
+    </section>
+
+    <main class="region-stack">
+      <section class="region-board" data-region-board="深圳">
+        <div class="region-head">
+          <div>
+            <p class="region-kicker">Shenzhen</p>
+            <h2>深圳</h2>
+          </div>
+          <div class="region-metrics">
+            <span id="metric-shenzhen-total">0 个岗位</span>
+            <span id="metric-shenzhen-recommended">0 个优先推荐</span>
+          </div>
+        </div>
+        <div class="toolbar toolbar-region">
+          <label class="search-box">
+            <span>关键词</span>
+            <input id="search-shenzhen" type="search" placeholder="岗位 / 公司 / 标签">
+          </label>
+          <label class="select-box">
+            <span>薪资</span>
+            <select id="salary-shenzhen">
+              <option value="all">不限</option>
+              <option value="10k_plus">10K+</option>
+              <option value="15k_plus">15K+</option>
+              <option value="20k_plus">20K+</option>
+            </select>
+          </label>
+          <label class="select-box">
+            <span>公司规模</span>
+            <select id="size-shenzhen">
+              <option value="preferred_large">大公司优先</option>
+              <option value="all">全部</option>
+              <option value="10000_plus">仅 10000+ 人</option>
+              <option value="unknown">仅规模未知</option>
+            </select>
+          </label>
+        </div>
+        <section class="subsection">
+          <div class="section-header">
+            <h3>优先推荐</h3>
+            <span id="recommended-shenzhen-count">0 条</span>
+          </div>
+          <div id="recommended-shenzhen" class="job-list"></div>
+        </section>
+        <section class="subsection">
+          <div class="section-header">
+            <h3>全部岗位</h3>
+            <span id="all-shenzhen-count">0 条</span>
+          </div>
+          <div id="jobs-shenzhen" class="job-list"></div>
+          <div id="empty-shenzhen" class="empty-state hidden">当前筛选下没有岗位。</div>
+        </section>
+      </section>
+
+      <section class="region-board region-board-hk" data-region-board="香港">
+        <div class="region-head">
+          <div>
+            <p class="region-kicker">Hong Kong</p>
+            <h2>香港</h2>
+          </div>
+          <div class="region-metrics">
+            <span id="metric-hongkong-total">0 个岗位</span>
+            <span id="metric-hongkong-recommended">0 个优先推荐</span>
+          </div>
+        </div>
+        <div class="toolbar toolbar-region">
+          <label class="search-box">
+            <span>关键词</span>
+            <input id="search-hongkong" type="search" placeholder="岗位 / 公司 / 标签">
+          </label>
+          <label class="select-box">
+            <span>薪资</span>
+            <select id="salary-hongkong">
+              <option value="all">不限</option>
+              <option value="10k_plus">10K+</option>
+              <option value="15k_plus">15K+</option>
+              <option value="20k_plus">20K+</option>
+            </select>
+          </label>
+          <label class="select-box">
+            <span>公司规模</span>
+            <select id="size-hongkong">
+              <option value="all">不限</option>
+              <option value="10000_plus">仅 10000+ 人</option>
+              <option value="unknown">仅规模未知</option>
+            </select>
+          </label>
+        </div>
+        <section class="subsection">
+          <div class="section-header">
+            <h3>优先推荐</h3>
+            <span id="recommended-hongkong-count">0 条</span>
+          </div>
+          <div id="recommended-hongkong" class="job-list"></div>
+        </section>
+        <section class="subsection">
+          <div class="section-header">
+            <h3>全部岗位</h3>
+            <span id="all-hongkong-count">0 条</span>
+          </div>
+          <div id="jobs-hongkong" class="job-list"></div>
+          <div id="empty-hongkong" class="empty-state hidden">当前筛选下没有岗位。</div>
+        </section>
+      </section>
     </main>
   </div>
 
   <template id="job-card-template">
     <article class="job-card">
       <div class="job-topline">
-        <span class="job-region"></span>
-        <span class="job-category"></span>
+        <span class="job-source"></span>
+        <span class="job-company-size"></span>
       </div>
       <h3 class="job-title"></h3>
       <p class="job-company"></p>

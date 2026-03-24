@@ -1,15 +1,17 @@
 # JobHunter
 
-自动抓取深圳、广州、香港范围内与日语或日本市场相关的公开岗位，筛成每日岗位摘要，并输出网页、JSON 和可选邮件。
+自动抓取深圳和香港范围内与日语或日本市场相关的公开岗位，筛成你自己的深港岗位面板，并输出网页、JSON 和可选邮件。
 
 ## 当前能力
 
 - 抓取公开岗位源并合并结果
+- 只保留深圳和香港两个地区
 - 按日语 / 日本市场 / 市场、销售、运营、翻译、分析等方向做筛选
-- 分成 `高匹配春招` 和 `补充关注`
 - 记录历史并标记 `is_new`
 - 输出静态网页数据到 `web/data/`
 - 提供轻量 API，便于网页和后续小程序复用
+- 支持简历上传和单用户岗位匹配
+- 支持按薪资区间、公司规模做筛选
 - 支持手动刷新和定时刷新
 - 配了 SMTP 时可自动发邮件
 
@@ -17,6 +19,7 @@
 
 - `job_digest.py`: 抓取、筛选、生成 JSON / HTML / 邮件
 - `api_server.py`: Python 标准库实现的轻量 API
+- `resume_utils.py`: 简历解析、文本抽取、岗位匹配打分
 - `run_job_digest.sh`: 统一刷新入口，会执行抓取并同步 `web/` 到服务器静态目录
 - `jobhunter-api.service`: systemd 服务文件
 - `web/`: 前端静态页面
@@ -75,7 +78,9 @@ python3 job_digest.py --send-email
 - `GET /jobhunter-api/health`
 - `GET /jobhunter-api/meta`
 - `GET /jobhunter-api/latest`
-- `GET /jobhunter-api/jobs?region=深圳&category=高匹配春招`
+- `GET /jobhunter-api/jobs?region=深圳&salary=15k_plus&company_size=preferred_large`
+- `GET /jobhunter-api/resume/meta`
+- `POST /jobhunter-api/resume`
 - `POST /jobhunter-api/refresh`
 
 其中 `meta` 会返回：
@@ -84,7 +89,7 @@ python3 job_digest.py --send-email
 - `generated_at_display`
 - `timezone`
 - `total_jobs`
-- `priority_jobs`
+- `recommended_jobs`
 - `new_jobs`
 
 ## 上线后访问方式

@@ -1,156 +1,183 @@
 const state = {
   jobs: [],
   meta: null,
-  category: "all",
-  region: "all",
-  query: "",
+  resumeMeta: null,
+  apiAvailable: true,
   refreshing: false,
+  uploadingResume: false,
+  filters: {
+    深圳: { query: "", salary: "all", companySize: "preferred_large" },
+    香港: { query: "", salary: "all", companySize: "all" },
+  },
 };
 
 const els = {
-  jobList: document.getElementById("job-list"),
-  emptyState: document.getElementById("empty-state"),
-  resultCount: document.getElementById("result-count"),
-  jobCount: document.getElementById("job-count"),
-  priorityCount: document.getElementById("priority-count"),
   lastUpdated: document.getElementById("last-updated"),
+  jobCount: document.getElementById("job-count"),
+  recommendedCount: document.getElementById("recommended-count"),
   countShenzhen: document.getElementById("count-shenzhen"),
-  countGuangzhou: document.getElementById("count-guangzhou"),
+  countShenzhenRecommended: document.getElementById("count-shenzhen-recommended"),
   countHongkong: document.getElementById("count-hongkong"),
-  countNew: document.getElementById("count-new"),
-  priorityBadge: document.getElementById("priority-badge"),
-  priorityList: document.getElementById("priority-list"),
-  apiStatus: document.getElementById("api-status"),
-  apiLatestEndpoint: document.getElementById("api-latest-endpoint"),
-  apiJobsEndpoint: document.getElementById("api-jobs-endpoint"),
-  apiMetaEndpoint: document.getElementById("api-meta-endpoint"),
+  countHongkongRecommended: document.getElementById("count-hongkong-recommended"),
   refreshButton: document.getElementById("refresh-button"),
-  searchInput: document.getElementById("search-input"),
+  resumeFile: document.getElementById("resume-file"),
+  resumeUploadButton: document.getElementById("resume-upload-button"),
+  resumeStatus: document.getElementById("resume-status"),
   template: document.getElementById("job-card-template"),
+  metrics: {
+    深圳: {
+      total: document.getElementById("metric-shenzhen-total"),
+      recommended: document.getElementById("metric-shenzhen-recommended"),
+      recommendedCount: document.getElementById("recommended-shenzhen-count"),
+      allCount: document.getElementById("all-shenzhen-count"),
+      recommendedList: document.getElementById("recommended-shenzhen"),
+      jobsList: document.getElementById("jobs-shenzhen"),
+      empty: document.getElementById("empty-shenzhen"),
+      search: document.getElementById("search-shenzhen"),
+      salary: document.getElementById("salary-shenzhen"),
+      companySize: document.getElementById("size-shenzhen"),
+    },
+    香港: {
+      total: document.getElementById("metric-hongkong-total"),
+      recommended: document.getElementById("metric-hongkong-recommended"),
+      recommendedCount: document.getElementById("recommended-hongkong-count"),
+      allCount: document.getElementById("all-hongkong-count"),
+      recommendedList: document.getElementById("recommended-hongkong"),
+      jobsList: document.getElementById("jobs-hongkong"),
+      empty: document.getElementById("empty-hongkong"),
+      search: document.getElementById("search-hongkong"),
+      salary: document.getElementById("salary-hongkong"),
+      companySize: document.getElementById("size-hongkong"),
+    },
+  },
 };
 
-async function loadJobs() {
-  const [jobsResponse, metaResponse] = await Promise.all([
-    fetch("./data/latest.json", { cache: "no-store" }),
-    fetch("./data/meta.json", { cache: "no-store" }).catch(() => null),
-  ]);
-
-  if (!jobsResponse.ok) {
-    throw new Error(`Failed to load jobs: ${jobsResponse.status}`);
+async function loadData() {
+  try {
+    const [latestResponse, metaResponse, resumeResponse] = await Promise.all([
+      fetch("/jobhunter-api/latest", { cache: "no-store" }),
+      fetch("/jobhunter-api/meta", { cache: "no-store" }),
+      fetch("/jobhunter-api/resume/meta", { cache: "no-store" }),
+    ]);
+    if (!latestResponse.ok || !metaResponse.ok) {
+      throw new Error("api failed");
+    }
+    const latestPayload = await latestResponse.json();
+    state.jobs = latestPayload.items || [];
+    state.meta = await metaResponse.json();
+    state.resumeMeta = resumeResponse.ok ? await resumeResponse.json() : null;
+    state.apiAvailable = true;
+  } catch (error) {
+    const [jobsResponse, metaResponse] = await Promise.all([
+      fetch("./data/latest.json", { cache: "no-store" }),
+      fetch("./data/meta.json", { cache: "no-store" }).catch(() => null),
+    ]);
+    if (!jobsResponse.ok) {
+      throw new Error(`Failed to load jobs: ${jobsResponse.status}`);
+    }
+    state.jobs = await jobsResponse.json();
+    state.meta = metaResponse && metaResponse.ok ? await metaResponse.json() : null;
+    state.resumeMeta = null;
+    state.apiAvailable = false;
   }
+  renderPage();
+}
 
-  state.jobs = await jobsResponse.json();
-  state.meta = metaResponse && metaResponse.ok ? await metaResponse.json() : null;
+function renderPage() {
   renderSummary();
-  renderPriority();
-  renderApiInfo();
-  renderJobs();
+  renderResumeStatus();
+  renderRegion("深圳");
+  renderRegion("香港");
 }
 
 function renderSummary() {
-  const jobs = state.jobs;
-  els.jobCount.textContent = String(jobs.length);
-  els.priorityCount.textContent = String(jobs.filter((job) => job.category === "高匹配春招").length);
-  els.countShenzhen.textContent = String(jobs.filter((job) => job.region === "深圳").length);
-  els.countGuangzhou.textContent = String(jobs.filter((job) => job.region === "广州").length);
-  els.countHongkong.textContent = String(jobs.filter((job) => job.region === "香港").length);
-  els.countNew.textContent = String(jobs.filter((job) => job.is_new).length);
+  const shenzhenJobs = state.jobs.filter((job) => job.region === "深圳");
+  const hongkongJobs = state.jobs.filter((job) => job.region === "香港");
+  const recommendedJobs = state.jobs.filter((job) => job.recommended);
+
+  els.jobCount.textContent = String(state.jobs.length);
+  els.recommendedCount.textContent = String(recommendedJobs.length);
+  els.countShenzhen.textContent = String(shenzhenJobs.length);
+  els.countShenzhenRecommended.textContent = String(shenzhenJobs.filter((job) => job.recommended).length);
+  els.countHongkong.textContent = String(hongkongJobs.length);
+  els.countHongkongRecommended.textContent = String(hongkongJobs.filter((job) => job.recommended).length);
 
   if (state.meta && state.meta.generated_at_display) {
     els.lastUpdated.textContent = formatDateTime(state.meta.generated_at_display || state.meta.generated_at);
   } else {
-    const latestDate = jobs
-      .map((job) => job.published_date)
-      .filter(Boolean)
-      .sort()
-      .at(-1);
-    els.lastUpdated.textContent = latestDate || "暂无";
+    els.lastUpdated.textContent = "暂无";
   }
 }
 
-function renderPriority() {
-  const priorityJobs = state.jobs.filter((job) => job.category === "高匹配春招").slice(0, 3);
-  els.priorityBadge.textContent = `${priorityJobs.length} 条高匹配`;
-  els.priorityList.innerHTML = "";
-
-  if (priorityJobs.length === 0) {
-    els.priorityList.innerHTML = "<p class=\"job-summary\">今天没有进入高匹配区的岗位。</p>";
+function renderResumeStatus() {
+  if (!state.apiAvailable) {
+    els.resumeStatus.textContent = "当前是静态数据模式，简历上传只在线上 API 可用时生效。";
     return;
   }
+  if (state.resumeMeta && state.resumeMeta.has_resume) {
+    const roles = (state.resumeMeta.target_roles || []).join(" / ") || "未提取方向";
+    els.resumeStatus.textContent = `已上传 ${state.resumeMeta.filename}，最近更新 ${formatDateTime(state.resumeMeta.updated_at)}，匹配方向：${roles}`;
+    return;
+  }
+  els.resumeStatus.textContent = "尚未上传简历";
+}
 
-  priorityJobs.forEach((job) => {
-    const item = document.createElement("article");
-    item.className = "priority-item";
-    item.innerHTML = `
-      <h3>${escapeHtml(job.title)}</h3>
-      <p>${escapeHtml(job.company)} · ${escapeHtml(job.region)} · ${escapeHtml(job.location || "地点待补充")}</p>
-      <p>${escapeHtml((job.reasons || []).join("、") || "人工筛选")}</p>
-      <p><a href="${job.url}" target="_blank" rel="noreferrer">查看原岗位</a></p>
-    `;
-    els.priorityList.appendChild(item);
+function renderRegion(region) {
+  const metrics = els.metrics[region];
+  const jobs = getFilteredJobs(region);
+  const recommended = [...jobs]
+    .filter((job) => job.recommended || (job.match_score || 0) > 0)
+    .sort((a, b) => {
+      const scoreDiff = Number(b.match_score || 0) - Number(a.match_score || 0);
+      if (scoreDiff !== 0) {
+        return scoreDiff;
+      }
+      return Number(b.base_score || 0) - Number(a.base_score || 0);
+    })
+    .slice(0, 6);
+
+  metrics.total.textContent = `${jobs.length} 个岗位`;
+  metrics.recommended.textContent = `${recommended.length} 个优先推荐`;
+  metrics.recommendedCount.textContent = `${recommended.length} 条`;
+  metrics.allCount.textContent = `${jobs.length} 条`;
+  metrics.recommendedList.innerHTML = "";
+  metrics.jobsList.innerHTML = "";
+  metrics.empty.classList.toggle("hidden", jobs.length > 0);
+
+  if (recommended.length === 0) {
+    const emptyNode = document.createElement("div");
+    emptyNode.className = "empty-inline";
+    emptyNode.textContent = state.resumeMeta && state.resumeMeta.has_resume ? "当前筛选下还没有明显更高匹配的岗位。" : "上传简历后，这里会优先显示更匹配的岗位。";
+    metrics.recommendedList.appendChild(emptyNode);
+  } else {
+    recommended.forEach((job) => {
+      metrics.recommendedList.appendChild(createJobCard(job, true));
+    });
+  }
+
+  jobs.forEach((job) => {
+    metrics.jobsList.appendChild(createJobCard(job, false));
   });
 }
 
-function renderApiInfo() {
-  const baseUrl = `${window.location.origin}`;
-  els.apiLatestEndpoint.textContent = `${baseUrl}/jobhunter-api/latest`;
-  els.apiJobsEndpoint.textContent = `${baseUrl}/jobhunter-api/jobs?region=深圳&category=高匹配春招`;
-  els.apiMetaEndpoint.textContent = `${baseUrl}/jobhunter-api/meta`;
-  checkApiHealth();
-}
+function getFilteredJobs(region) {
+  const filter = state.filters[region];
+  const minSalary = salaryThreshold(filter.salary);
 
-async function checkApiHealth() {
-  try {
-    const response = await fetch("/jobhunter-api/health", { cache: "no-store" });
-    if (!response.ok) {
-      throw new Error(String(response.status));
-    }
-    els.apiStatus.textContent = "API 在线";
-    els.apiStatus.classList.add("ok");
-    els.apiStatus.classList.remove("fail");
-  } catch (error) {
-    els.apiStatus.textContent = "API 未连通";
-    els.apiStatus.classList.add("fail");
-    els.apiStatus.classList.remove("ok");
-  }
-}
-
-async function triggerRefresh() {
-  if (state.refreshing) {
-    return;
-  }
-
-  state.refreshing = true;
-  els.refreshButton.disabled = true;
-  els.refreshButton.textContent = "刷新中...";
-
-  try {
-    const response = await fetch("/jobhunter-api/refresh", {
-      method: "POST",
-    });
-    if (!response.ok) {
-      throw new Error(String(response.status));
-    }
-    await loadJobs();
-  } catch (error) {
-    console.error(error);
-    alert("刷新失败，请稍后再试。");
-  } finally {
-    state.refreshing = false;
-    els.refreshButton.disabled = false;
-    els.refreshButton.textContent = "立即刷新";
-  }
-}
-
-function getFilteredJobs() {
   return state.jobs.filter((job) => {
-    if (state.category !== "all" && job.category !== state.category) {
+    if (job.region !== region) {
       return false;
     }
-    if (state.region !== "all" && job.region !== state.region) {
+    if (!companySizeMatches(job, filter.companySize, region)) {
       return false;
     }
-    if (!state.query) {
+    if (minSalary !== null) {
+      const salaryFloor = Math.max(Number(job.salary_min_monthly || 0), Number(job.salary_max_monthly || 0));
+      if (!salaryFloor || salaryFloor < minSalary) {
+        return false;
+      }
+    }
+    if (!filter.query) {
       return true;
     }
     const haystack = [
@@ -158,61 +185,101 @@ function getFilteredJobs() {
       job.company,
       job.location,
       job.summary,
-      job.region,
-      job.category,
+      job.source_platform,
       ...(job.tags || []),
+      ...(job.match_reasons || []),
     ]
       .join(" ")
       .toLowerCase();
-    return haystack.includes(state.query);
+    return haystack.includes(filter.query);
   });
 }
 
-function renderJobs() {
-  const jobs = getFilteredJobs();
-  els.jobList.innerHTML = "";
-  els.resultCount.textContent = `${jobs.length} 条`;
-  els.emptyState.classList.toggle("hidden", jobs.length > 0);
+function createJobCard(job, highlight) {
+  const node = els.template.content.firstElementChild.cloneNode(true);
+  node.querySelector(".job-source").textContent = job.source_platform || job.source_name;
+  node.querySelector(".job-company-size").textContent = humanCompanySize(job.company_size_bucket);
+  node.querySelector(".job-title").textContent = job.title;
+  node.querySelector(".job-company").textContent = job.company;
+  node.querySelector(".job-meta").textContent = formatMeta(job);
+  node.querySelector(".job-summary").textContent = job.summary || "暂无岗位摘要";
 
-  jobs.forEach((job) => {
-    const node = els.template.content.firstElementChild.cloneNode(true);
-    node.querySelector(".job-region").textContent = job.region;
+  const reasons = node.querySelector(".job-reasons");
+  const reasonText = highlight
+    ? `推荐理由：${(job.match_reasons || []).join("、") || (job.reasons || []).join("、") || "基础筛选结果"}`
+    : `筛选理由：${(job.reasons || []).join("、") || "基础筛选结果"}`;
+  reasons.textContent = reasonText;
 
-    const categoryEl = node.querySelector(".job-category");
-    categoryEl.textContent = job.category;
-    if (job.category === "高匹配春招") {
-      categoryEl.classList.add("priority");
-    }
+  const link = node.querySelector(".job-link");
+  link.href = job.url;
 
-    node.querySelector(".job-title").textContent = job.title;
-    node.querySelector(".job-company").textContent = job.company;
-    node.querySelector(".job-meta").textContent = formatMeta(job);
-    node.querySelector(".job-summary").textContent = job.summary || "暂无岗位摘要";
-    node.querySelector(".job-reasons").textContent = `判断理由：${(job.reasons || []).join("、") || "人工筛选"}`;
-
-    const link = node.querySelector(".job-link");
-    link.href = job.url;
-
-    const tagsEl = node.querySelector(".job-tags");
-    const tags = [...(job.tags || [])];
-    if (job.is_new) {
-      tags.unshift("新发现");
-    }
-    tags.slice(0, 6).forEach((tag) => {
-      const span = document.createElement("span");
-      span.className = "job-tag";
-      span.textContent = tag;
-      tagsEl.appendChild(span);
-    });
-
-    els.jobList.appendChild(node);
+  const tags = node.querySelector(".job-tags");
+  const tagValues = [];
+  if (job.recommended) {
+    tagValues.push("优先推荐");
+  }
+  if (job.is_new) {
+    tagValues.push("新发现");
+  }
+  if (job.match_score) {
+    tagValues.push(`匹配分 ${job.match_score}`);
+  }
+  if (job.salary_currency) {
+    tagValues.push(job.salary_currency);
+  }
+  (job.tags || []).slice(0, 4).forEach((tag) => tagValues.push(tag));
+  tagValues.forEach((tag) => {
+    const span = document.createElement("span");
+    span.className = "job-tag";
+    span.textContent = tag;
+    tags.appendChild(span);
   });
+
+  return node;
 }
 
 function formatMeta(job) {
-  return [job.location, job.experience, job.salary, job.published_text]
+  return [
+    job.location,
+    job.experience,
+    job.salary,
+    humanCompanySize(job.company_size_bucket),
+    job.published_text,
+  ]
     .filter(Boolean)
     .join(" | ");
+}
+
+function humanCompanySize(bucket) {
+  return {
+    "10000_plus": "10000+人",
+    "1000_9999": "1000-9999人",
+    "100_999": "100-999人",
+    "1_99": "1-99人",
+    unknown: "规模未知",
+  }[bucket || "unknown"] || "规模未知";
+}
+
+function companySizeMatches(job, filter, region) {
+  const bucket = job.company_size_bucket || "unknown";
+  if (!filter || filter === "all") {
+    return true;
+  }
+  if (filter === "preferred_large") {
+    if (region !== "深圳") {
+      return true;
+    }
+    return bucket === "10000_plus" || bucket === "unknown";
+  }
+  return bucket === filter;
+}
+
+function salaryThreshold(value) {
+  return {
+    "10k_plus": 10000,
+    "15k_plus": 15000,
+    "20k_plus": 20000,
+  }[value] ?? null;
 }
 
 function formatDateTime(value) {
@@ -235,37 +302,91 @@ function formatDateTime(value) {
   return `${year}-${month}-${day} ${hour}:${minute}:${second}`;
 }
 
-function escapeHtml(value) {
-  return String(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
+async function triggerRefresh() {
+  if (!state.apiAvailable || state.refreshing) {
+    return;
+  }
+  state.refreshing = true;
+  els.refreshButton.disabled = true;
+  els.refreshButton.textContent = "刷新中...";
+  try {
+    const response = await fetch("/jobhunter-api/refresh", { method: "POST" });
+    if (!response.ok) {
+      throw new Error(String(response.status));
+    }
+    await loadData();
+  } catch (error) {
+    console.error(error);
+    alert("刷新失败，请稍后再试。");
+  } finally {
+    state.refreshing = false;
+    els.refreshButton.disabled = false;
+    els.refreshButton.textContent = "立即刷新";
+  }
 }
 
-function bindFilters() {
-  document.querySelectorAll("[data-filter]").forEach((button) => {
-    button.addEventListener("click", () => {
-      state.category = button.dataset.filter;
-      document.querySelectorAll("[data-filter]").forEach((item) => item.classList.remove("active"));
-      button.classList.add("active");
-      renderJobs();
+async function uploadResume() {
+  if (!state.apiAvailable || state.uploadingResume) {
+    return;
+  }
+  const file = els.resumeFile.files && els.resumeFile.files[0];
+  if (!file) {
+    alert("先选择简历文件。");
+    return;
+  }
+  state.uploadingResume = true;
+  els.resumeUploadButton.disabled = true;
+  els.resumeUploadButton.textContent = "上传中...";
+  try {
+    const contentBase64 = await readFileAsBase64(file);
+    const response = await fetch("/jobhunter-api/resume", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        filename: file.name,
+        content_base64: contentBase64,
+      }),
     });
-  });
+    const payload = await response.json();
+    if (!response.ok || !payload.ok) {
+      throw new Error(payload.error || String(response.status));
+    }
+    state.resumeMeta = payload.resume;
+    await loadData();
+  } catch (error) {
+    console.error(error);
+    alert(`简历上传失败：${error.message}`);
+  } finally {
+    state.uploadingResume = false;
+    els.resumeUploadButton.disabled = false;
+    els.resumeUploadButton.textContent = "上传简历";
+  }
+}
 
-  document.querySelectorAll("[data-region]").forEach((button) => {
-    button.addEventListener("click", () => {
-      state.region = button.dataset.region;
-      document.querySelectorAll("[data-region]").forEach((item) => item.classList.remove("active"));
-      button.classList.add("active");
-      renderJobs();
+function readFileAsBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("文件读取失败"));
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.readAsDataURL(file);
+  });
+}
+
+function bindControls() {
+  ["深圳", "香港"].forEach((region) => {
+    const metrics = els.metrics[region];
+    metrics.search.addEventListener("input", (event) => {
+      state.filters[region].query = event.target.value.trim().toLowerCase();
+      renderRegion(region);
     });
-  });
-
-  els.searchInput.addEventListener("input", (event) => {
-    state.query = event.target.value.trim().toLowerCase();
-    renderJobs();
+    metrics.salary.addEventListener("change", (event) => {
+      state.filters[region].salary = event.target.value;
+      renderRegion(region);
+    });
+    metrics.companySize.addEventListener("change", (event) => {
+      state.filters[region].companySize = event.target.value;
+      renderRegion(region);
+    });
   });
 
   if (els.refreshButton) {
@@ -273,16 +394,20 @@ function bindFilters() {
       triggerRefresh();
     });
   }
+  if (els.resumeUploadButton) {
+    els.resumeUploadButton.addEventListener("click", () => {
+      uploadResume();
+    });
+  }
 }
 
 async function boot() {
-  bindFilters();
+  bindControls();
   try {
-    await loadJobs();
+    await loadData();
   } catch (error) {
-    els.emptyState.textContent = "数据加载失败。请先运行 job_digest.py 生成 web/data/latest.json。";
-    els.emptyState.classList.remove("hidden");
     console.error(error);
+    els.lastUpdated.textContent = "数据加载失败";
   }
 }
 

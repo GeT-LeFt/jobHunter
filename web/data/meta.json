@@ -1,8 +1,21 @@
 {
-  "generated_at": "2026-03-24T22:08:08.173638",
-  "generated_at_display": "2026-03-24 22:08:08",
+  "generated_at": "2026-03-24T23:52:54.513967+08:00",
+  "generated_at_display": "2026-03-24 23:52:54",
   "timezone": "Asia/Shanghai",
-  "total_jobs": 71,
-  "priority_jobs": 2,
-  "new_jobs": 0
+  "total_jobs": 16,
+  "new_jobs": 0,
+  "recommended_jobs": 0,
+  "regions": {
+    "深圳": {
+      "total": 4,
+      "recommended": 0,
+      "new": 0
+    },
+    "香港": {
+      "total": 12,
+      "recommended": 0,
+      "new": 0
+    }
+  },
+  "resume_enabled": false
 }

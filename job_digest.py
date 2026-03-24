@@ -14,9 +14,11 @@ import sys
 from dataclasses import asdict, dataclass, field
 from email.message import EmailMessage
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Sequence
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
+
+from resume_utils import apply_resume_scores, contains_any, load_resume_profile, strip_tags
 
 try:
     from zoneinfo import ZoneInfo
@@ -30,27 +32,25 @@ STATE_PATH = OUTPUT_DIR / "seen_jobs.json"
 DEFAULT_ENV_PATH = WORKDIR / ".env"
 WEB_DATA_DIR = WORKDIR / "web" / "data"
 TIMEZONE_NAME = "Asia/Shanghai"
+RESUME_PROFILE_PATH = WORKDIR / "resume_storage" / "resume_profile.json"
+COMPANY_SIZE_OVERRIDES_PATH = WORKDIR / "company_size_overrides.json"
 
 JAPANESE_JOBS_SOURCES = [
     {
         "name": "Japanese-Jobs 深圳",
+        "platform": "Japanese-Jobs",
         "base_url": "https://cn.japanese-jobs.com/city-shenzhen",
         "region": "深圳",
         "parser": "japanese_jobs",
         "max_pages": 8,
-    },
-    {
-        "name": "Japanese-Jobs 广州",
-        "base_url": "https://cn.japanese-jobs.com/city-guangzhou",
-        "region": "广州",
-        "parser": "japanese_jobs",
-        "max_pages": 8,
+        "detail_enrichment": True,
     },
 ]
 
 CTGOODJOBS_SOURCES = [
     {
         "name": "CTgoodjobs 香港 Japanese Fresh Graduate",
+        "platform": "CTgoodjobs",
         "base_url": "https://jobs.ctgoodjobs.hk/jobs/japanese-fresh-graduate-jobs",
         "region": "香港",
         "parser": "ctgoodjobs",
@@ -58,14 +58,52 @@ CTGOODJOBS_SOURCES = [
     },
     {
         "name": "CTgoodjobs 香港 Japanese Marketing",
+        "platform": "CTgoodjobs",
         "base_url": "https://jobs.ctgoodjobs.hk/jobs/japanese-marketing-jobs",
         "region": "香港",
         "parser": "ctgoodjobs",
         "max_pages": 5,
     },
+    {
+        "name": "CTgoodjobs 香港 Japanese Sales",
+        "platform": "CTgoodjobs",
+        "base_url": "https://jobs.ctgoodjobs.hk/jobs/japanese-sales-jobs",
+        "region": "香港",
+        "parser": "ctgoodjobs",
+        "max_pages": 4,
+    },
+    {
+        "name": "CTgoodjobs 香港 Japanese Translator",
+        "platform": "CTgoodjobs",
+        "base_url": "https://jobs.ctgoodjobs.hk/jobs/japanese-translator-jobs",
+        "region": "香港",
+        "parser": "ctgoodjobs",
+        "max_pages": 4,
+    },
 ]
 
-ALL_SOURCES = JAPANESE_JOBS_SOURCES + CTGOODJOBS_SOURCES
+BOSS_SOURCES = [
+    {
+        "name": "BOSS 深圳 日语",
+        "platform": "BOSS直聘",
+        "region": "深圳",
+        "parser": "boss_api",
+        "query": "日语",
+        "max_pages": 2,
+        "enabled_env": "JOBHUNTER_ENABLE_BOSS",
+    },
+    {
+        "name": "BOSS 深圳 日本市场",
+        "platform": "BOSS直聘",
+        "region": "深圳",
+        "parser": "boss_api",
+        "query": "日本市场",
+        "max_pages": 2,
+        "enabled_env": "JOBHUNTER_ENABLE_BOSS",
+    },
+]
+
+ALL_SOURCES = JAPANESE_JOBS_SOURCES + CTGOODJOBS_SOURCES + BOSS_SOURCES
 
 JAPAN_RELATED_KEYWORDS = [
     "日语",
@@ -75,12 +113,22 @@ JAPAN_RELATED_KEYWORDS = [
     "日资",
     "日本市场",
     "对日",
-    "日语人才",
     "japanese",
-    "japanese-speaking",
-    "japanese speaking",
     "japan",
-    "japan market",
+    "jlpt",
+    "n1",
+    "n2",
+]
+
+LANGUAGE_REQUIREMENT_KEYWORDS = [
+    "日语：",
+    "日语能力",
+    "商务日语",
+    "jlpt",
+    "n1",
+    "n2",
+    "japanese speaking",
+    "fluent japanese",
 ]
 
 ROLE_KEYWORDS = [
@@ -92,7 +140,6 @@ ROLE_KEYWORDS = [
     "销售",
     "营业",
     "客户",
-    "客服",
     "翻译",
     "口译",
     "笔译",
@@ -100,13 +147,11 @@ ROLE_KEYWORDS = [
     "行政",
     "助理",
     "企画",
-    "广报",
     "宣传",
     "公关",
     "内容",
     "社媒",
     "分析",
-    "数据",
     "研究",
     "咨询",
     "strategy",
@@ -120,13 +165,9 @@ ROLE_KEYWORDS = [
     "business",
     "content",
     "social",
-    "licensing",
-    "ecommerce",
     "coordinator",
     "assistant",
-    "administrator",
-    "customer",
-    "client",
+    "translator",
 ]
 
 EARLY_CAREER_KEYWORDS = [
@@ -137,57 +178,32 @@ EARLY_CAREER_KEYWORDS = [
     "新卒",
     "graduate",
     "fresh graduate",
-    "fresh graduates",
     "entry level",
     "trainee",
-    "management trainee",
-    "graduate program",
     "intern",
     "internship",
     "实习",
     "无经验",
     "0 - 2 yr",
     "0-2 yr",
-    "0-1 yr",
     "1 - 2 yr",
     "1-2 yr",
 ]
 
 BLACKLIST_KEYWORDS = [
     "工程师",
-    "sqe",
-    "制造",
-    "医師",
-    "医生",
-    "护士",
     "结构",
     "机械",
     "工艺",
     "研发",
-    "技术员",
-    "技術",
-    "品质",
-    "质量",
+    "制造",
+    "护士",
+    "医生",
     "律师",
     "法务",
-]
-
-MARKETING_FOCUS_KEYWORDS = [
-    "市场",
-    "营销",
-    "品牌",
-    "运营",
-    "销售",
-    "营业",
-    "商务",
-    "marketing",
-    "brand",
-    "content",
-    "social",
-    "digital",
-    "ecommerce",
-    "licensing",
-    "business development",
+    "风控",
+    "合规",
+    "审计",
 ]
 
 NOT_FIT_KEYWORDS = [
@@ -197,17 +213,11 @@ NOT_FIT_KEYWORDS = [
     "compliance",
     "audit",
     "internal control",
-    "real estate",
-    "store business",
     "procurement",
     "purchasing",
     "finance manager",
     "accountant",
     "财务经理",
-    "审计",
-    "风控",
-    "合规",
-    "地产",
 ]
 
 SENIOR_TITLE_KEYWORDS = [
@@ -236,6 +246,7 @@ HTTP_HEADERS = {
 @dataclass
 class Job:
     source_name: str
+    source_platform: str
     source_page: str
     region: str
     title: str
@@ -249,25 +260,32 @@ class Job:
     published_text: str = ""
     published_date: str = ""
     tags: list[str] = field(default_factory=list)
-    relevance_score: int = 0
+    detail_text: str = ""
+    role_hint: str = ""
+    company_size_raw: str = ""
+    company_size_bucket: str = "unknown"
+    company_size_value: int | None = None
+    salary_min_monthly: int | None = None
+    salary_max_monthly: int | None = None
+    salary_currency: str = ""
+    base_score: int = 0
     reasons: list[str] = field(default_factory=list)
-    spring_like: bool = False
+    match_score: int = 0
+    match_reasons: list[str] = field(default_factory=list)
+    recommended: bool = False
     is_new: bool = False
-    category: str = ""
+    is_qualified: bool = True
 
 
 def load_env_file(path: Path) -> None:
     if not path.exists():
         return
-
     for raw_line in path.read_text(encoding="utf-8").splitlines():
         line = raw_line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, value = line.split("=", 1)
-        key = key.strip()
-        value = value.strip().strip('"').strip("'")
-        os.environ.setdefault(key, value)
+        os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
 
 
 def now_in_tz() -> dt.datetime:
@@ -285,8 +303,8 @@ def build_paged_url(base_url: str, page: int) -> str:
     return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query_pairs), parts.fragment))
 
 
-def fetch_text(url: str, timeout: int = 20) -> str:
-    request = Request(url, headers=HTTP_HEADERS)
+def fetch_text(url: str, timeout: int = 20, method: str = "GET", data: bytes | None = None) -> str:
+    request = Request(url, headers=HTTP_HEADERS, method=method, data=data)
     try:
         with urlopen(request, timeout=timeout) as response:
             body = response.read()
@@ -303,18 +321,18 @@ def fetch_text(url: str, timeout: int = 20) -> str:
             f"Accept-Language: {HTTP_HEADERS['Accept-Language']}",
             "-H",
             "Accept-Encoding: identity",
-            url,
         ]
+        if method != "GET":
+            curl_cmd.extend(["-X", method])
+        if data:
+            curl_cmd.extend(["--data-binary", data.decode("utf-8", errors="ignore")])
+        curl_cmd.append(url)
         result = subprocess.run(curl_cmd, capture_output=True, check=True)
         return result.stdout.decode("utf-8", errors="ignore")
 
 
-def strip_tags(raw: str) -> str:
-    text = re.sub(r"<br\s*/?>", "\n", raw, flags=re.I)
-    text = re.sub(r"<[^>]+>", " ", text)
-    text = html.unescape(text)
-    text = re.sub(r"\s+", " ", text).strip()
-    return text
+def fetch_json(url: str, timeout: int = 20, method: str = "GET", data: bytes | None = None) -> dict[str, object]:
+    return json.loads(fetch_text(url, timeout=timeout, method=method, data=data))
 
 
 def first_match(pattern: str, text: str, flags: int = re.S | re.I) -> str:
@@ -322,42 +340,28 @@ def first_match(pattern: str, text: str, flags: int = re.S | re.I) -> str:
     return strip_tags(match.group(1)) if match else ""
 
 
-def parse_japanese_jobs_page(page_html: str, source_name: str, source_page: str, region: str) -> list[Job]:
+def parse_japanese_jobs_page(page_html: str, source_name: str, source_page: str, region: str, platform: str) -> list[Job]:
     chunks = page_html.split('<li class="jj-jobs__item">')[1:]
     jobs: list[Job] = []
-
     for chunk in chunks:
         url = first_match(r'href="(https://cn\.japanese-jobs\.com/jobs/details/\d+)"', chunk)
         title = first_match(r'data-cassette-anchor="target">([^<]+)</a>', chunk)
         company = first_match(r'<li class="jj-cassette__company">.*?</span>\s*(.*?)\s*</li>', chunk)
         location = first_match(r'<li class="jj-cassette__place">.*?</span>\s*(.*?)\s*</li>', chunk)
-
         if not url or not title or not company:
             continue
-
         salary = first_match(r'<li class="jj-cassette__price">.*?</span>\s*(.*?)\s*</li>', chunk)
         summary = first_match(r'<p class="jj-cassette__comment">(.*?)</p>', chunk)
         published_text = first_match(r'<span class="jj-cassette__date">发布时间：([^<]+)</span>', chunk)
         tags = [strip_tags(tag) for tag in re.findall(r'<span class="jj-tag[^"]*">(.*?)</span>', chunk, re.S)]
         tags = [tag for tag in tags if tag]
-
         employment_type = tags[0] if tags else ""
-        experience = next(
-            (
-                tag
-                for tag in tags
-                if ("经验" in tag or "年" in tag or tag == "无经验")
-            ),
-            "",
-        )
-
-        published_date = ""
-        if "～" in published_text:
-            published_date = published_text.split("～", 1)[0]
-
+        experience = next((tag for tag in tags if ("经验" in tag or "年" in tag or tag == "无经验")), "")
+        published_date = published_text.split("～", 1)[0] if "～" in published_text else ""
         jobs.append(
             Job(
                 source_name=source_name,
+                source_platform=platform,
                 source_page=source_page,
                 region=region,
                 title=title,
@@ -373,36 +377,30 @@ def parse_japanese_jobs_page(page_html: str, source_name: str, source_page: str,
                 tags=tags,
             )
         )
-
     return jobs
 
 
-def parse_ctgoodjobs_page(page_html: str, source_name: str, source_page: str, region: str) -> list[Job]:
+def parse_ctgoodjobs_page(page_html: str, source_name: str, source_page: str, region: str, platform: str) -> list[Job]:
     chunks = re.split(r'<div class="job-card\b', page_html)[1:]
     jobs: list[Job] = []
-
     for chunk in chunks:
         url = first_match(r'<a href="([^"]+)" class="jc-position', chunk)
         title = first_match(r'<a href="[^"]+" class="jc-position[^"]*">\s*<h2>(.*?)</h2>', chunk)
         company = first_match(r'class="jc-company">(.*?)</a>', chunk)
-
         if not url or not title or not company:
             continue
-
+        if url.startswith("/"):
+            url = f"https://jobs.ctgoodjobs.hk{url}"
         location = first_match(r'<div class="row jc-info"><div class="col-12">.*?</svg>(.*?)</div></div>', chunk)
-        experience = first_match(
-            r'<div class="row jc-info"><div class="col-6"><i class="cus-icon cus-exp"></i>(.*?)</div></div>',
-            chunk,
-        )
+        experience = first_match(r'<div class="row jc-info"><div class="col-6"><i class="cus-icon cus-exp"></i>(.*?)</div></div>', chunk)
         highlights_block = first_match(r'<div class="jc-highlight"><ul>(.*?)</ul></div>', chunk)
         highlights = [strip_tags(item) for item in re.findall(r"<li>(.*?)</li>", highlights_block, re.S)]
         summary = " | ".join(highlights)
         published_text = first_match(r'<div class="jc-other"><div>.*?</svg>(.*?)</div></div>', chunk)
-        published_date = parse_relative_date(published_text)
-
         jobs.append(
             Job(
                 source_name=source_name,
+                source_platform=platform,
                 source_page=source_page,
                 region=region,
                 title=title,
@@ -412,43 +410,115 @@ def parse_ctgoodjobs_page(page_html: str, source_name: str, source_page: str, re
                 summary=summary,
                 experience=experience,
                 published_text=published_text,
-                published_date=published_date,
+                published_date=parse_relative_date(published_text),
                 tags=highlights,
             )
         )
-
     return jobs
+
+
+def crawl_boss_source(source: dict[str, object]) -> list[Job]:
+    payload_template = "scene=1&query={query}&city=101280600&page={page}&pageSize=15"
+    jobs: list[Job] = []
+    for page in range(1, int(source["max_pages"]) + 1):
+        payload = payload_template.format(query=urlencode({"q": str(source["query"])}).split("=", 1)[1], page=page)
+        try:
+            data = fetch_json(
+                "https://www.zhipin.com/wapi/zpgeek/search/joblist.json",
+                timeout=20,
+                method="POST",
+                data=payload.encode("utf-8"),
+            )
+        except Exception:
+            break
+        if int(data.get("code", -1)) != 0:
+            break
+        zp_data = data.get("zpData", {}) if isinstance(data, dict) else {}
+        job_list = zp_data.get("jobList", []) if isinstance(zp_data, dict) else []
+        if not isinstance(job_list, list) or not job_list:
+            break
+        for item in job_list:
+            if not isinstance(item, dict):
+                continue
+            security_id = str(item.get("securityId", "")).strip()
+            encrypt_job_id = str(item.get("encryptJobId", "")).strip()
+            lid = str(item.get("lid", "")).strip()
+            url = ""
+            if security_id:
+                url = f"https://www.zhipin.com/job_detail/{security_id}.html"
+                if lid:
+                    url = f"{url}?lid={lid}"
+            title = str(item.get("jobName", "")).strip()
+            company = str(item.get("brandName", "")).strip()
+            salary = str(item.get("salaryDesc", "")).strip()
+            experience = str(item.get("jobExperience", "")).strip()
+            location = " / ".join(part for part in [item.get("cityName"), item.get("areaDistrict")] if part)
+            company_size_raw = str(item.get("brandScaleName", "")).strip()
+            summary = " | ".join(
+                part for part in [str(item.get("skills", "")), str(item.get("welfareList", ""))] if part and part != "[]"
+            )
+            tags = [
+                str(item.get("brandIndustry", "")).strip(),
+                str(item.get("brandStageName", "")).strip(),
+                company_size_raw,
+            ]
+            jobs.append(
+                Job(
+                    source_name=str(source["name"]),
+                    source_platform=str(source["platform"]),
+                    source_page="https://www.zhipin.com/web/geek/jobs",
+                    region=str(source["region"]),
+                    title=title,
+                    company=company,
+                    location=location,
+                    url=url or f"https://www.zhipin.com/web/geek/jobs?query={source['query']}",
+                    summary=summary,
+                    salary=salary,
+                    experience=experience,
+                    published_text=str(item.get("daysDesc", "")).strip(),
+                    published_date=parse_relative_date(str(item.get("daysDesc", "")).strip()),
+                    tags=[tag for tag in tags if tag],
+                    company_size_raw=company_size_raw,
+                )
+            )
+    return dedupe_jobs(jobs)
 
 
 def parse_relative_date(relative_text: str) -> str:
     text = relative_text.lower().strip()
-    now = now_in_tz().date()
-
+    today = now_in_tz().date()
     if not text:
         return ""
-    if text in {"today", "just now"}:
-        return now.isoformat()
-    if text == "yesterday":
-        return (now - dt.timedelta(days=1)).isoformat()
-
+    if text in {"today", "just now", "刚刚"}:
+        return today.isoformat()
+    if text in {"yesterday", "昨天"}:
+        return (today - dt.timedelta(days=1)).isoformat()
     match = re.match(r"(\d+)\s*d\s*ago", text)
     if match:
-        return (now - dt.timedelta(days=int(match.group(1)))).isoformat()
-
+        return (today - dt.timedelta(days=int(match.group(1)))).isoformat()
     match = re.match(r"(\d+)\s*h\s*ago", text)
     if match:
-        return now.isoformat()
-
+        return today.isoformat()
+    match = re.match(r"(\d+)\s*天前", text)
+    if match:
+        return (today - dt.timedelta(days=int(match.group(1)))).isoformat()
     return ""
 
 
 def crawl_source(source: dict[str, object]) -> list[Job]:
+    enabled_env = str(source.get("enabled_env", "")).strip()
+    if enabled_env and not os.getenv(enabled_env):
+        return []
+
     parser_name = str(source["parser"])
+    if parser_name == "boss_api":
+        return crawl_boss_source(source)
+
     base_url = str(source["base_url"])
     source_name = str(source["name"])
     region = str(source["region"])
+    platform = str(source["platform"])
     max_pages = int(source["max_pages"])
-
     parser = parse_japanese_jobs_page if parser_name == "japanese_jobs" else parse_ctgoodjobs_page
     seen_signatures: set[tuple[str, ...]] = set()
     all_jobs: list[Job] = []
@@ -456,25 +526,48 @@ def crawl_source(source: dict[str, object]) -> list[Job]:
     for page in range(1, max_pages + 1):
         page_url = build_paged_url(base_url, page)
         page_html = fetch_text(page_url)
-        page_jobs = parser(page_html, source_name, page_url, region)
+        page_jobs = parser(page_html, source_name, page_url, region, platform)
         if not page_jobs:
             break
-
         signature = tuple(job.url for job in page_jobs[:5])
         if signature in seen_signatures:
             break
         seen_signatures.add(signature)
         all_jobs.extend(page_jobs)
 
+    if source.get("detail_enrichment"):
+        for job in all_jobs[:18]:
+            enrich_japanese_jobs_detail(job)
+
+    return dedupe_jobs(all_jobs)
+
+
+def dedupe_jobs(jobs: Sequence[Job]) -> list[Job]:
     deduped: dict[str, Job] = {}
-    for job in all_jobs:
+    for job in jobs:
         deduped.setdefault(job.url, job)
     return list(deduped.values())
 
 
-def contains_any(text: str, keywords: Iterable[str]) -> bool:
-    lowered = text.lower()
-    return any(keyword_matches(lowered, keyword) for keyword in keywords)
+def enrich_japanese_jobs_detail(job: Job) -> None:
+    try:
+        page_html = fetch_text(job.url, timeout=8)
+    except Exception:
+        return
+    responsibilities = first_match(r">岗位职责\s*</div>\s*<div class=\"jj-detail__responsibility__inner\">(.*?)</div>", page_html)
+    requirement_block = first_match(r">任职要求\s*</div>\s*<div class=\"jj-detail__requirement__inner\">(.*?)</div>", page_html)
+    other_info = first_match(r">其他信息\s*</div>\s*<div class=\"jj-detail__requirement__inner\">(.*?)</div>", page_html)
+    role_hint = first_match(r"职位种类：(.*?)</div>", other_info)
+    company_size_raw = first_match(r"(?:公司规模|従業員数|员工数)[:：]\s*(.*?)</div>", page_html)
+    detail_text = " ".join(part for part in [responsibilities, requirement_block, other_info, role_hint] if part)
+    job.detail_text = detail_text
+    job.role_hint = role_hint
+    if company_size_raw:
+        job.company_size_raw = company_size_raw
+    if detail_text and job.summary:
+        job.summary = f"{job.summary} | {detail_text[:220]}"
+    elif detail_text:
+        job.summary = detail_text[:220]
 
 
 def keyword_matches(lowered_text: str, keyword: str) -> bool:
@@ -486,10 +579,14 @@ def keyword_matches(lowered_text: str, keyword: str) -> bool:
     return lowered_keyword in lowered_text
 
 
-def looks_too_senior(job: Job, combined_text: str) -> bool:
-    if contains_any(combined_text, EARLY_CAREER_KEYWORDS):
-        return False
+def contains_any_local(text: str, keywords: Iterable[str]) -> bool:
+    lowered = text.lower()
+    return any(keyword_matches(lowered, keyword) for keyword in keywords)
 
+
+def looks_too_senior(job: Job, combined_text: str) -> bool:
+    if contains_any_local(combined_text, EARLY_CAREER_KEYWORDS):
+        return False
     experience = job.experience.lower()
     senior_patterns = [
         r"\b[3-9]\s*-\s*\d+\s*yr",
@@ -509,48 +606,133 @@ def extract_max_years(experience_text: str) -> int | None:
         return None
     if "无经验" in text:
         return 0
-
     matches = [int(item) for item in re.findall(r"\d+", text)]
-    if not matches:
-        return None
-    return max(matches)
+    return max(matches) if matches else None
+
+
+def parse_salary_range(salary_text: str) -> tuple[int | None, int | None, str]:
+    lowered = salary_text.lower().replace(",", "")
+    numbers = [float(item) for item in re.findall(r"\d+(?:\.\d+)?", lowered)]
+    currency = ""
+    if any(token in lowered for token in ["hkd", "港币", "hk$"]):
+        currency = "HKD"
+    elif any(token in lowered for token in ["rmb", "cny", "人民币"]):
+        currency = "RMB"
+
+    if not numbers:
+        return None, None, currency
+
+    multiplier = 1
+    if "k" in lowered:
+        multiplier = 1000
+    if "万" in lowered:
+        multiplier = 10000
+
+    numbers = [int(value * multiplier) for value in numbers[:2]]
+    if len(numbers) == 1:
+        min_value = max_value = numbers[0]
+    else:
+        min_value, max_value = min(numbers), max(numbers)
+
+    if "年" in lowered and "月" not in lowered:
+        min_value //= 12
+        max_value //= 12
+
+    return min_value, max_value, currency
+
+
+def parse_company_size(company_size_raw: str) -> tuple[int | None, str]:
+    lowered = company_size_raw.lower().replace(",", "")
+    if not lowered:
+        return None, "unknown"
+    if len(lowered) > 40:
+        return None, "unknown"
+    if not any(marker in lowered for marker in ["人", "employee", "规模", "員", "従業"]):
+        return None, "unknown"
+    numbers = [int(item) for item in re.findall(r"\d+", lowered)]
+    if not numbers:
+        return None, "unknown"
+    value = max(numbers)
+    if value >= 10000:
+        return value, "10000_plus"
+    if value >= 1000:
+        return value, "1000_9999"
+    if value >= 100:
+        return value, "100_999"
+    return value, "1_99"
+
+
+def load_company_size_overrides(path: Path) -> dict[str, dict[str, object]]:
+    if not path.exists():
+        return {}
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+    normalized: dict[str, dict[str, object]] = {}
+    for key, value in raw.items():
+        if isinstance(key, str) and isinstance(value, dict):
+            normalized[key.strip().lower()] = value
+    return normalized
+
+
+def apply_company_size_metadata(job: Job, overrides: dict[str, dict[str, object]]) -> None:
+    override = overrides.get(job.company.lower())
+    if override:
+        if isinstance(override.get("company_size_raw"), str):
+            job.company_size_raw = str(override["company_size_raw"])
+        if isinstance(override.get("company_size_bucket"), str):
+            job.company_size_bucket = str(override["company_size_bucket"])
+        if isinstance(override.get("company_size_value"), int):
+            job.company_size_value = int(override["company_size_value"])
+
+    if job.company_size_bucket != "unknown" or job.company_size_value is not None:
+        return
+
+    parsed_value, parsed_bucket = parse_company_size(job.company_size_raw)
+    job.company_size_value = parsed_value
+    job.company_size_bucket = parsed_bucket
 
 
 def score_and_filter_jobs(jobs: list[Job]) -> list[Job]:
+    overrides = load_company_size_overrides(COMPANY_SIZE_OVERRIDES_PATH)
     filtered: list[Job] = []
 
     for job in jobs:
+        job.salary_min_monthly, job.salary_max_monthly, job.salary_currency = parse_salary_range(job.salary)
+        apply_company_size_metadata(job, overrides)
+
         content_text = " ".join(
             [
                 job.title,
                 job.location,
                 job.summary,
+                job.detail_text,
+                job.role_hint,
                 job.experience,
                 job.salary,
                 " ".join(job.tags),
             ]
         ).strip()
         lowered = content_text.lower()
+        title_lower = job.title.lower()
         max_years = extract_max_years(job.experience)
-        has_senior_title = contains_any(job.title.lower(), SENIOR_TITLE_KEYWORDS)
+        has_senior_title = contains_any_local(title_lower, SENIOR_TITLE_KEYWORDS)
 
-        if contains_any(lowered, BLACKLIST_KEYWORDS) and not contains_any(lowered, ROLE_KEYWORDS):
+        if contains_any_local(lowered, NOT_FIT_KEYWORDS):
             continue
-        if contains_any(lowered, NOT_FIT_KEYWORDS):
+        if contains_any_local(title_lower, BLACKLIST_KEYWORDS) and not contains_any_local(title_lower, ROLE_KEYWORDS):
             continue
 
-        japan_text = " ".join([content_text, job.company]).lower()
-        has_japan_signal = contains_any(japan_text, JAPAN_RELATED_KEYWORDS) or "Japanese-Jobs" in job.source_name
-        has_role_signal = contains_any(lowered, ROLE_KEYWORDS)
-        has_early_signal = contains_any(lowered, EARLY_CAREER_KEYWORDS)
-        has_marketing_signal = contains_any(lowered, MARKETING_FOCUS_KEYWORDS)
+        has_role_signal = contains_any_local(" ".join([job.title, job.role_hint, content_text]), ROLE_KEYWORDS)
+        has_japan_signal = contains_any_local(" ".join([job.title, job.summary, job.detail_text, job.company]), JAPAN_RELATED_KEYWORDS)
+        has_language_requirement = contains_any_local(job.detail_text or job.summary, LANGUAGE_REQUIREMENT_KEYWORDS)
+        has_early_signal = contains_any_local(content_text, EARLY_CAREER_KEYWORDS)
 
-        if "CTgoodjobs 香港 Japanese Marketing" in job.source_name and not has_marketing_signal:
+        if job.source_platform == "Japanese-Jobs" and not (has_language_requirement or contains_any_local(job.title, JAPAN_RELATED_KEYWORDS)):
             continue
-        if "CTgoodjobs 香港 Japanese Fresh Graduate" in job.source_name:
-            if not has_early_signal and (max_years is None or max_years > 2):
-                continue
-
         if not has_role_signal:
             continue
         if not has_japan_signal:
@@ -566,54 +748,42 @@ def score_and_filter_jobs(jobs: list[Job]) -> list[Job]:
 
         reasons: list[str] = []
         score = 0
-
-        if has_japan_signal:
+        score += 3
+        reasons.append("明确命中日语/日本相关")
+        score += 2
+        reasons.append("岗位方向属于目标轨道")
+        if has_language_requirement:
             score += 2
-            reasons.append("日语/日本相关")
-        if has_role_signal:
-            score += 2
-            reasons.append("岗位方向匹配语言/市场/分析")
+            reasons.append("职位描述出现明确语言要求")
         if has_early_signal:
-            score += 3
-            reasons.append("明确偏春招/应届/实习")
-        elif max_years is not None and max_years <= 2:
             score += 2
-            reasons.append("经验要求偏初级")
-
+            reasons.append("偏应届 / 初级 / 实习")
+        elif max_years is not None and max_years <= 2:
+            score += 1
+            reasons.append("经验要求较初级")
         if is_recent(job.published_date, days=14):
             score += 1
             reasons.append("最近14天内更新")
+        if job.region == "深圳" and job.company_size_bucket == "10000_plus":
+            score += 1
+            reasons.append("公司规模达到万人以上")
 
-        job.relevance_score = score
+        job.base_score = score
         job.reasons = reasons
-        job.spring_like = (
-            (has_early_signal or (max_years is not None and max_years <= 2))
-            and not has_senior_title
-            and has_japan_signal
-        )
-        job.category = "高匹配春招" if job.spring_like else "补充关注"
         filtered.append(job)
 
     filtered.sort(
         key=lambda job: (
-            0 if job.category == "高匹配春招" else 1,
+            job.region != "深圳",
+            0 if job.region == "深圳" and job.company_size_bucket == "10000_plus" else 1,
             0 if job.is_new else 1,
-            -job.relevance_score,
-            job.region,
+            -job.base_score,
+            -(job.salary_max_monthly or 0),
             job.company,
             job.title,
         )
     )
     return filtered
-
-
-def is_recent(date_text: str, days: int) -> bool:
-    if not date_text:
-        return False
-    parsed = parse_date(date_text)
-    if not parsed:
-        return False
-    return (now_in_tz().date() - parsed).days <= days
 
 
 def parse_date(date_text: str) -> dt.date | None:
@@ -625,6 +795,13 @@ def parse_date(date_text: str) -> dt.date | None:
         except ValueError:
             continue
     return None
+
+
+def is_recent(date_text: str, days: int) -> bool:
+    parsed = parse_date(date_text)
+    if not parsed:
+        return False
+    return (now_in_tz().date() - parsed).days <= days
 
 
 def load_seen_jobs(path: Path) -> dict[str, dict[str, str]]:
@@ -639,7 +816,6 @@ def load_seen_jobs(path: Path) -> dict[str, dict[str, str]]:
 def mark_and_persist_seen_jobs(jobs: list[Job], path: Path) -> None:
     seen = load_seen_jobs(path)
     today = now_in_tz().date().isoformat()
-
     for job in jobs:
         job.is_new = job.url not in seen
         seen[job.url] = {
@@ -649,203 +825,95 @@ def mark_and_persist_seen_jobs(jobs: list[Job], path: Path) -> None:
             "first_seen": seen.get(job.url, {}).get("first_seen", today),
             "last_seen": today,
         }
-
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(seen, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def summarize_counts(jobs: list[Job]) -> dict[str, int]:
-    summary = {
+def summarize_counts(jobs: list[dict[str, object]]) -> dict[str, object]:
+    regions = {}
+    for region in ["深圳", "香港"]:
+        region_jobs = [job for job in jobs if job.get("region") == region]
+        regions[region] = {
+            "total": len(region_jobs),
+            "recommended": sum(bool(job.get("recommended")) for job in region_jobs),
+            "new": sum(bool(job.get("is_new")) for job in region_jobs),
+        }
+    return {
         "total": len(jobs),
-        "new": sum(job.is_new for job in jobs),
-        "spring_like": sum(job.category == "高匹配春招" for job in jobs),
-        "shenzhen": sum(job.region == "深圳" for job in jobs),
-        "guangzhou": sum(job.region == "广州" for job in jobs),
-        "hongkong": sum(job.region == "香港" for job in jobs),
+        "new": sum(bool(job.get("is_new")) for job in jobs),
+        "recommended": sum(bool(job.get("recommended")) for job in jobs),
+        "regions": regions,
     }
-    return summary
 
 
-def render_html(jobs: list[Job]) -> str:
-    now_text = now_in_tz().strftime("%Y-%m-%d %H:%M")
+def render_html(jobs: list[dict[str, object]]) -> str:
     summary = summarize_counts(jobs)
-    grouped = {
-        "高匹配春招": [job for job in jobs if job.category == "高匹配春招"],
-        "补充关注": [job for job in jobs if job.category == "补充关注"],
-    }
-
+    generated_at = now_in_tz().strftime("%Y-%m-%d %H:%M")
     sections: list[str] = []
-    for name, items in grouped.items():
-        if not items:
-            continue
+    for region in ["深圳", "香港"]:
+        region_jobs = [job for job in jobs if job.get("region") == region]
+        recommended = [job for job in region_jobs if job.get("recommended")] or region_jobs[:6]
         cards = []
-        for job in items:
-            badge = '<span class="badge badge-new">新</span>' if job.is_new else ""
-            meta_parts = [job.region, job.location]
-            if job.experience:
-                meta_parts.append(job.experience)
-            if job.salary:
-                meta_parts.append(job.salary)
-            if job.published_text:
-                meta_parts.append(job.published_text)
-            meta = " | ".join(part for part in meta_parts if part)
-            reasons = "、".join(job.reasons) if job.reasons else "人工复核"
-            tags = "".join(f'<span class="tag">{html.escape(tag)}</span>' for tag in job.tags[:5])
-            summary_html = html.escape(job.summary) if job.summary else "无额外摘要"
+        for job in region_jobs[:18]:
+            badge = '<span class="badge badge-new">新</span>' if job.get("is_new") else ""
+            match_text = "、".join(job.get("match_reasons", []) or []) or "基础筛选结果"
             cards.append(
                 f"""
                 <div class="card">
                   <div class="title-row">
-                    <a class="title" href="{html.escape(job.url)}">{html.escape(job.title)}</a>
+                    <a class="title" href="{html.escape(str(job.get('url', '')))}">{html.escape(str(job.get('title', '')))}</a>
                     {badge}
                   </div>
-                  <div class="company">{html.escape(job.company)}</div>
-                  <div class="meta">{html.escape(meta)}</div>
-                  <div class="reason">判断理由：{html.escape(reasons)}</div>
-                  <div class="summary">{summary_html}</div>
-                  <div class="tags">{tags}</div>
+                  <div class="company">{html.escape(str(job.get('company', '')))}</div>
+                  <div class="meta">{html.escape(format_meta_dict(job))}</div>
+                  <div class="reason">推荐理由：{html.escape(match_text)}</div>
                 </div>
                 """
             )
+        recommended_html = "".join(
+            f"<li>{html.escape(str(job.get('title', '')))} - {html.escape(str(job.get('company', '')))}</li>"
+            for job in recommended[:6]
+        )
         sections.append(
             f"""
             <section>
-              <h2>{html.escape(name)}（{len(items)}）</h2>
-              {''.join(cards)}
+              <h2>{region}（{len(region_jobs)}）</h2>
+              <p>优先推荐：{len(recommended)}</p>
+              <ul>{recommended_html or '<li>暂无优先推荐</li>'}</ul>
+              {''.join(cards) or '<p>暂无岗位</p>'}
             </section>
             """
         )
-
-    if not sections:
-        sections.append("<p>今天没有筛到符合条件的新岗位。</p>")
 
     return f"""<!doctype html>
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8" />
-  <title>日语 / 日本市场岗位日报</title>
+  <title>JobHunter 深港日语岗位面板</title>
   <style>
-    body {{
-      margin: 0;
-      padding: 24px;
-      font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
-      background: #f4f1ea;
-      color: #1e1c18;
-    }}
-    .wrap {{
-      max-width: 980px;
-      margin: 0 auto;
-    }}
-    .hero {{
-      background: linear-gradient(135deg, #173d3f, #8c4e30);
-      color: #fff7ea;
-      border-radius: 20px;
-      padding: 28px 30px;
-      margin-bottom: 20px;
-    }}
-    .hero h1 {{
-      margin: 0 0 10px;
-      font-size: 30px;
-      line-height: 1.2;
-    }}
-    .hero p {{
-      margin: 0;
-      opacity: 0.9;
-    }}
-    .stats {{
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-      gap: 12px;
-      margin: 18px 0 26px;
-    }}
-    .stat {{
-      background: #fffdf8;
-      border-radius: 16px;
-      padding: 16px;
-      box-shadow: 0 8px 24px rgba(31, 28, 24, 0.06);
-    }}
-    .stat .label {{
-      font-size: 12px;
-      color: #6f675f;
-      margin-bottom: 6px;
-    }}
-    .stat .value {{
-      font-size: 28px;
-      font-weight: 700;
-    }}
-    section {{
-      margin-bottom: 28px;
-    }}
-    h2 {{
-      margin: 0 0 14px;
-      font-size: 22px;
-    }}
-    .card {{
-      background: #fffdf8;
-      border-radius: 18px;
-      padding: 18px 18px 16px;
-      margin-bottom: 14px;
-      box-shadow: 0 8px 24px rgba(31, 28, 24, 0.06);
-    }}
-    .title-row {{
-      display: flex;
-      gap: 10px;
-      align-items: center;
-      flex-wrap: wrap;
-    }}
-    .title {{
-      font-size: 20px;
-      font-weight: 700;
-      color: #173d3f;
-      text-decoration: none;
-    }}
-    .company {{
-      margin-top: 8px;
-      font-size: 15px;
-      color: #3d3a34;
-    }}
-    .meta, .reason, .summary {{
-      margin-top: 8px;
-      font-size: 14px;
-      line-height: 1.6;
-      color: #5d564f;
-    }}
-    .tags {{
-      margin-top: 10px;
-    }}
-    .tag, .badge {{
-      display: inline-block;
-      margin: 0 8px 8px 0;
-      border-radius: 999px;
-      padding: 4px 10px;
-      font-size: 12px;
-    }}
-    .tag {{
-      background: #efe8da;
-      color: #6d5129;
-    }}
-    .badge-new {{
-      background: #d44a1c;
-      color: white;
-    }}
+    body {{ margin: 0; padding: 24px; font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif; background: #f4f1ea; color: #1e1c18; }}
+    .wrap {{ max-width: 960px; margin: 0 auto; }}
+    .hero {{ background: linear-gradient(135deg, #173d3f, #8c4e30); color: #fff7ea; border-radius: 20px; padding: 28px 30px; margin-bottom: 20px; }}
+    .stats {{ display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 18px 0 26px; }}
+    .stat, .card {{ background: #fffdf8; border-radius: 16px; padding: 16px; box-shadow: 0 8px 24px rgba(31, 28, 24, 0.06); }}
+    section {{ margin-bottom: 28px; }}
+    .title {{ font-size: 18px; font-weight: 700; color: #173d3f; text-decoration: none; }}
+    .meta, .reason, .company {{ margin-top: 8px; font-size: 14px; line-height: 1.6; color: #5d564f; }}
+    .badge-new {{ display: inline-block; margin-left: 8px; border-radius: 999px; padding: 4px 10px; background: #d44a1c; color: white; font-size: 12px; }}
   </style>
 </head>
 <body>
   <div class="wrap">
     <div class="hero">
-      <h1>日语 / 日本市场岗位日报</h1>
-      <p>生成时间：{html.escape(now_text)}（{TIMEZONE_NAME}）</p>
+      <h1>JobHunter 深港日语岗位面板</h1>
+      <p>生成时间：{html.escape(generated_at)}</p>
     </div>
-
     <div class="stats">
-      <div class="stat"><div class="label">总岗位数</div><div class="value">{summary['total']}</div></div>
-      <div class="stat"><div class="label">今日新发现</div><div class="value">{summary['new']}</div></div>
-      <div class="stat"><div class="label">高匹配春招</div><div class="value">{summary['spring_like']}</div></div>
-      <div class="stat"><div class="label">深圳</div><div class="value">{summary['shenzhen']}</div></div>
-      <div class="stat"><div class="label">广州</div><div class="value">{summary['guangzhou']}</div></div>
-      <div class="stat"><div class="label">香港</div><div class="value">{summary['hongkong']}</div></div>
+      <div class="stat"><div>总岗位</div><strong>{summary['total']}</strong></div>
+      <div class="stat"><div>新发现</div><strong>{summary['new']}</strong></div>
+      <div class="stat"><div>深圳</div><strong>{summary['regions']['深圳']['total']}</strong></div>
+      <div class="stat"><div>香港</div><strong>{summary['regions']['香港']['total']}</strong></div>
     </div>
-
     {''.join(sections)}
   </div>
 </body>
@@ -853,42 +921,54 @@ def render_html(jobs: list[Job]) -> str:
 """
 
 
-def render_text(jobs: list[Job]) -> str:
+def format_meta_dict(job: dict[str, object]) -> str:
+    parts = [
+        str(job.get("location", "")),
+        str(job.get("experience", "")),
+        str(job.get("salary", "")),
+        str(job.get("published_text", "")),
+        human_company_size(str(job.get("company_size_bucket", "unknown"))),
+        str(job.get("source_platform", "")),
+    ]
+    return " | ".join(part for part in parts if part and part != "未知规模")
+
+
+def render_text(jobs: list[dict[str, object]]) -> str:
     summary = summarize_counts(jobs)
     lines = [
-        f"日语 / 日本市场岗位日报 - {now_in_tz().strftime('%Y-%m-%d %H:%M')} ({TIMEZONE_NAME})",
-        "",
-        f"总数：{summary['total']} | 新发现：{summary['new']} | 高匹配春招：{summary['spring_like']}",
-        f"深圳：{summary['shenzhen']} | 广州：{summary['guangzhou']} | 香港：{summary['hongkong']}",
+        f"JobHunter 深港日语岗位面板 - {now_in_tz().strftime('%Y-%m-%d %H:%M')}",
+        f"总数：{summary['total']} | 新发现：{summary['new']} | 优先推荐：{summary['recommended']}",
+        f"深圳：{summary['regions']['深圳']['total']} | 香港：{summary['regions']['香港']['total']}",
         "",
     ]
-
-    for category in ["高匹配春招", "补充关注"]:
-        items = [job for job in jobs if job.category == category]
-        if not items:
-            continue
-        lines.append(f"{category}（{len(items)}）")
-        for job in items:
-            prefix = "[新]" if job.is_new else "[旧]"
-            meta = " | ".join(
-                part
-                for part in [job.region, job.location, job.experience, job.salary, job.published_text]
-                if part
-            )
-            lines.append(f"{prefix} {job.title} - {job.company}")
+    for region in ["深圳", "香港"]:
+        items = [job for job in jobs if job.get("region") == region]
+        lines.append(f"{region}（{len(items)}）")
+        for job in items[:15]:
+            prefix = "[推]" if job.get("recommended") else "[岗]"
+            lines.append(f"{prefix} {job.get('title')} - {job.get('company')}")
+            meta = format_meta_dict(job)
             if meta:
                 lines.append(f"  {meta}")
-            if job.reasons:
-                lines.append(f"  判断：{'、'.join(job.reasons)}")
-            lines.append(f"  {job.url}")
+            reasons = "、".join(job.get("match_reasons", []) or job.get("reasons", []) or [])
+            if reasons:
+                lines.append(f"  判断：{reasons}")
+            lines.append(f"  {job.get('url')}")
         lines.append("")
-
-    if len(lines) <= 5:
-        lines.append("今天没有筛到符合条件的岗位。")
     return "\n".join(lines).strip()
 
 
-def save_outputs(jobs: list[Job], html_body: str) -> tuple[Path, Path]:
+def human_company_size(bucket: str) -> str:
+    return {
+        "10000_plus": "10000+人",
+        "1000_9999": "1000-9999人",
+        "100_999": "100-999人",
+        "1_99": "1-99人",
+        "unknown": "未知规模",
+    }.get(bucket, bucket)
+
+
+def save_outputs(jobs: list[dict[str, object]], html_body: str) -> tuple[Path, Path]:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     WEB_DATA_DIR.mkdir(parents=True, exist_ok=True)
     date_prefix = now_in_tz().strftime("%Y%m%d")
@@ -900,20 +980,23 @@ def save_outputs(jobs: list[Job], html_body: str) -> tuple[Path, Path]:
     web_latest_json = WEB_DATA_DIR / "latest.json"
     web_meta_json = WEB_DATA_DIR / "meta.json"
 
-    json_payload = [asdict(job) for job in jobs]
+    summary = summarize_counts(jobs)
     meta_payload = {
         "generated_at": generated_at.isoformat(),
         "generated_at_display": generated_at.strftime("%Y-%m-%d %H:%M:%S"),
         "timezone": TIMEZONE_NAME,
-        "total_jobs": len(jobs),
-        "priority_jobs": sum(job.category == "高匹配春招" for job in jobs),
-        "new_jobs": sum(job.is_new for job in jobs),
+        "total_jobs": summary["total"],
+        "new_jobs": summary["new"],
+        "recommended_jobs": summary["recommended"],
+        "regions": summary["regions"],
+        "resume_enabled": bool(load_resume_profile(RESUME_PROFILE_PATH)),
     }
+    payload_text = json.dumps(jobs, ensure_ascii=False, indent=2)
     html_path.write_text(html_body, encoding="utf-8")
-    json_path.write_text(json.dumps(json_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    json_path.write_text(payload_text, encoding="utf-8")
     latest_html.write_text(html_body, encoding="utf-8")
-    latest_json.write_text(json.dumps(json_payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    web_latest_json.write_text(json.dumps(json_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    latest_json.write_text(payload_text, encoding="utf-8")
+    web_latest_json.write_text(payload_text, encoding="utf-8")
     web_meta_json.write_text(json.dumps(meta_payload, ensure_ascii=False, indent=2), encoding="utf-8")
     return html_path, json_path
 
@@ -925,7 +1008,6 @@ def send_email(subject: str, text_body: str, html_body: str) -> None:
     smtp_password = os.getenv("JOBDIGEST_SMTP_PASSWORD", "").strip()
     mail_from = os.getenv("JOBDIGEST_MAIL_FROM", smtp_user).strip()
     mail_to = [item.strip() for item in os.getenv("JOBDIGEST_MAIL_TO", "").split(",") if item.strip()]
-
     missing = [
         name
         for name, value in [
@@ -939,14 +1021,12 @@ def send_email(subject: str, text_body: str, html_body: str) -> None:
     ]
     if missing:
         raise RuntimeError(f"缺少邮件配置：{', '.join(missing)}")
-
     message = EmailMessage()
     message["Subject"] = subject
     message["From"] = mail_from
     message["To"] = ", ".join(mail_to)
     message.set_content(text_body)
     message.add_alternative(html_body, subtype="html")
-
     context = ssl.create_default_context()
     with smtplib.SMTP(smtp_host, smtp_port, timeout=30) as server:
         server.starttls(context=context)
@@ -959,45 +1039,35 @@ def run(send_email_enabled: bool) -> int:
     for source in ALL_SOURCES:
         collected.extend(crawl_source(source))
 
-    deduped_by_url: dict[str, Job] = {}
-    for job in collected:
-        deduped_by_url.setdefault(job.url, job)
-
-    jobs = list(deduped_by_url.values())
+    jobs = dedupe_jobs(collected)
     jobs = score_and_filter_jobs(jobs)
     mark_and_persist_seen_jobs(jobs, STATE_PATH)
 
-    html_body = render_html(jobs)
-    text_body = render_text(jobs)
-    html_path, json_path = save_outputs(jobs, html_body)
+    payload = [asdict(job) for job in jobs]
+    resume_profile = load_resume_profile(RESUME_PROFILE_PATH)
+    payload = apply_resume_scores(payload, resume_profile)
 
-    subject = f"日语 / 日本市场岗位日报 - {now_in_tz().strftime('%Y-%m-%d')}"
+    html_body = render_html(payload)
+    text_body = render_text(payload)
+    html_path, json_path = save_outputs(payload, html_body)
+    subject = f"JobHunter 深港日语岗位面板 - {now_in_tz().strftime('%Y-%m-%d')}"
     if send_email_enabled:
         send_email(subject, text_body, html_body)
 
     print(f"已输出 HTML: {html_path}")
     print(f"已输出 JSON: {json_path}")
-    print(f"筛选后岗位数: {len(jobs)}")
-    print(f"其中新发现: {sum(job.is_new for job in jobs)}")
+    print(f"筛选后岗位数: {len(payload)}")
+    print(f"其中新发现: {sum(bool(job.get('is_new')) for job in payload)}")
+    print(f"其中优先推荐: {sum(bool(job.get('recommended')) for job in payload)}")
     if send_email_enabled:
         print("邮件已发送")
     return 0
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="抓取深圳/广州/香港的日语或日本市场岗位，并生成日报/发送邮件。"
-    )
-    parser.add_argument(
-        "--send-email",
-        action="store_true",
-        help="按 .env 或环境变量里的 SMTP 配置发送邮件。",
-    )
-    parser.add_argument(
-        "--env-file",
-        default=str(DEFAULT_ENV_PATH),
-        help="可选 .env 路径，默认读取当前目录下的 .env。",
-    )
+    parser = argparse.ArgumentParser(description="抓取深圳/香港的日语或日本市场岗位，并生成日报/发送邮件。")
+    parser.add_argument("--send-email", action="store_true", help="按 .env 或环境变量里的 SMTP 配置发送邮件。")
+    parser.add_argument("--env-file", default=str(DEFAULT_ENV_PATH), help="可选 .env 路径，默认读取当前目录下的 .env。")
     return parser.parse_args()
 
 
