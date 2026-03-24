@@ -9,6 +9,7 @@ import os
 import re
 import smtplib
 import ssl
+import subprocess
 import sys
 from dataclasses import asdict, dataclass, field
 from email.message import EmailMessage
@@ -27,6 +28,7 @@ WORKDIR = Path(__file__).resolve().parent
 OUTPUT_DIR = WORKDIR / "job_digest_output"
 STATE_PATH = OUTPUT_DIR / "seen_jobs.json"
 DEFAULT_ENV_PATH = WORKDIR / ".env"
+WEB_DATA_DIR = WORKDIR / "web" / "data"
 TIMEZONE_NAME = "Asia/Shanghai"
 
 JAPANESE_JOBS_SOURCES = [
@@ -285,9 +287,26 @@ def build_paged_url(base_url: str, page: int) -> str:
 
 def fetch_text(url: str, timeout: int = 20) -> str:
     request = Request(url, headers=HTTP_HEADERS)
-    with urlopen(request, timeout=timeout) as response:
-        body = response.read()
-    return body.decode("utf-8", errors="ignore")
+    try:
+        with urlopen(request, timeout=timeout) as response:
+            body = response.read()
+        return body.decode("utf-8", errors="ignore")
+    except Exception:
+        curl_cmd = [
+            "curl",
+            "-L",
+            "--max-time",
+            str(timeout),
+            "-A",
+            HTTP_HEADERS["User-Agent"],
+            "-H",
+            f"Accept-Language: {HTTP_HEADERS['Accept-Language']}",
+            "-H",
+            "Accept-Encoding: identity",
+            url,
+        ]
+        result = subprocess.run(curl_cmd, capture_output=True, check=True)
+        return result.stdout.decode("utf-8", errors="ignore")
 
 
 def strip_tags(raw: str) -> str:
@@ -871,17 +890,31 @@ def render_text(jobs: list[Job]) -> str:
 
 def save_outputs(jobs: list[Job], html_body: str) -> tuple[Path, Path]:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    WEB_DATA_DIR.mkdir(parents=True, exist_ok=True)
     date_prefix = now_in_tz().strftime("%Y%m%d")
+    generated_at = now_in_tz()
     html_path = OUTPUT_DIR / f"{date_prefix}-digest.html"
     json_path = OUTPUT_DIR / f"{date_prefix}-digest.json"
     latest_html = OUTPUT_DIR / "latest.html"
     latest_json = OUTPUT_DIR / "latest.json"
+    web_latest_json = WEB_DATA_DIR / "latest.json"
+    web_meta_json = WEB_DATA_DIR / "meta.json"
 
     json_payload = [asdict(job) for job in jobs]
+    meta_payload = {
+        "generated_at": generated_at.isoformat(),
+        "generated_at_display": generated_at.strftime("%Y-%m-%d %H:%M:%S"),
+        "timezone": TIMEZONE_NAME,
+        "total_jobs": len(jobs),
+        "priority_jobs": sum(job.category == "高匹配春招" for job in jobs),
+        "new_jobs": sum(job.is_new for job in jobs),
+    }
     html_path.write_text(html_body, encoding="utf-8")
     json_path.write_text(json.dumps(json_payload, ensure_ascii=False, indent=2), encoding="utf-8")
     latest_html.write_text(html_body, encoding="utf-8")
     latest_json.write_text(json.dumps(json_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    web_latest_json.write_text(json.dumps(json_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    web_meta_json.write_text(json.dumps(meta_payload, ensure_ascii=False, indent=2), encoding="utf-8")
     return html_path, json_path
 
 

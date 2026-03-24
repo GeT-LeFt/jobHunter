@@ -1,0 +1,14 @@
+[Unit]
+Description=JobHunter API Service
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/jobhunter
+ExecStart=/usr/bin/python3 /opt/jobhunter/api_server.py
+Restart=always
+RestartSec=3
+User=www-data
+
+[Install]
+WantedBy=multi-user.target
