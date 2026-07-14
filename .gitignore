@@ -1,2 +1,16 @@
 __pycache__/
 job_digest_output/
+
+# secrets
+.env
+
+# personal resume profile (PII) — never publish
+resume_storage/
+
+# runtime logs
+*.log
+
+# scraped job data — data is not published, code only
+latest.json
+meta.json
+web/data/

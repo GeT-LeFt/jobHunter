@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Japan Job Hunter</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="page-shell">
+    <header class="hero">
+      <div class="hero-copy">
+        <p class="eyebrow">Daily Digest</p>
+        <h1>Japan Job Hunter</h1>
+        <p class="hero-text">每天抓取深圳、广州、香港的日语与日本市场相关岗位，并把结果整理成一页可筛、可点开的清单。</p>
+      </div>
+      <div class="hero-panel">
+        <div class="hero-stat">
+          <span class="hero-stat-label">最后刷新</span>
+          <strong id="last-updated">--</strong>
+        </div>
+        <div class="hero-stat">
+          <span class="hero-stat-label">岗位总数</span>
+          <strong id="job-count">--</strong>
+        </div>
+        <div class="hero-stat">
+          <span class="hero-stat-label">高匹配春招</span>
+          <strong id="priority-count">--</strong>
+        </div>
+        <button id="refresh-button" class="hero-action" type="button">立即刷新</button>
+      </div>
+    </header>
+
+    <section class="toolbar">
+      <div class="filter-group">
+        <button class="filter-chip active" data-filter="all">全部</button>
+        <button class="filter-chip" data-filter="高匹配春招">高匹配春招</button>
+        <button class="filter-chip" data-filter="补充关注">补充关注</button>
+      </div>
+      <div class="filter-group">
+        <button class="filter-chip active" data-region="all">全地区</button>
+        <button class="filter-chip" data-region="深圳">深圳</button>
+        <button class="filter-chip" data-region="广州">广州</button>
+        <button class="filter-chip" data-region="香港">香港</button>
+      </div>
+      <label class="search-box">
+        <span>搜索</span>
+        <input id="search-input" type="search" placeholder="岗位 / 公司 / 地点">
+      </label>
+    </section>
+
+    <section class="summary-grid">
+      <article class="summary-card">
+        <span class="summary-label">深圳</span>
+        <strong class="summary-value" id="count-shenzhen">0</strong>
+      </article>
+      <article class="summary-card">
+        <span class="summary-label">广州</span>
+        <strong class="summary-value" id="count-guangzhou">0</strong>
+      </article>
+      <article class="summary-card">
+        <span class="summary-label">香港</span>
+        <strong class="summary-value" id="count-hongkong">0</strong>
+      </article>
+      <article class="summary-card">
+        <span class="summary-label">新发现</span>
+        <strong class="summary-value" id="count-new">0</strong>
+      </article>
+    </section>
+
+    <section class="insight-grid">
+      <article class="insight-card insight-card--priority">
+        <div class="insight-head">
+          <h2>今日重点</h2>
+          <span id="priority-badge">0 条高匹配</span>
+        </div>
+        <div id="priority-list" class="priority-list"></div>
+      </article>
+      <article class="insight-card">
+        <div class="insight-head">
+          <h2>接口状态</h2>
+          <span class="api-pill" id="api-status">检测中</span>
+        </div>
+        <div class="api-block">
+          <p>后端 API 已为小程序预留。</p>
+          <code id="api-latest-endpoint">/jobhunter-api/latest</code>
+          <code id="api-jobs-endpoint">/jobhunter-api/jobs?region=深圳&category=高匹配春招</code>
+          <code id="api-meta-endpoint">/jobhunter-api/meta</code>
+        </div>
+      </article>
+    </section>
+
+    <main>
+      <div class="section-header">
+        <h2>岗位列表</h2>
+        <span id="result-count">0 条</span>
+      </div>
+      <div id="job-list" class="job-list"></div>
+      <div id="empty-state" class="empty-state hidden">当前筛选下没有岗位。</div>
+    </main>
+  </div>
+
+  <template id="job-card-template">
+    <article class="job-card">
+      <div class="job-topline">
+        <span class="job-region"></span>
+        <span class="job-category"></span>
+      </div>
+      <h3 class="job-title"></h3>
+      <p class="job-company"></p>
+      <p class="job-meta"></p>
+      <p class="job-summary"></p>
+      <div class="job-tags"></div>
+      <div class="job-footer">
+        <div class="job-reasons"></div>
+        <a class="job-link" target="_blank" rel="noreferrer">查看原岗位</a>
+      </div>
+    </article>
+  </template>
+
+  <script src="./app.js"></script>
+</body>
+</html>
